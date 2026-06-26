@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,viewport-fit=cover">
 <meta name="theme-color" content="#1d4ed8">
-<title>TELC Lesen – All in One Updated</title>
+<title>TELC Lesen – All in One Full Page</title>
 <style>
 :root {
   --bg:#eef3f9;
@@ -20,15 +20,18 @@
 html, body {
   margin:0;
   min-height:100%;
+  height:auto;
   background:var(--bg);
   color:var(--text);
   font-family:Arial,"Noto Sans Arabic",sans-serif;
-  overflow:hidden;
+  overflow-x:hidden;
+  overflow-y:auto;
 }
-.app { min-height:100vh; display:flex; flex-direction:column; }
+.app { min-height:100vh; display:block; }
 .topbar {
-  position:relative;
-  z-index:5;
+  position:sticky;
+  top:0;
+  z-index:50;
   padding:max(10px,env(safe-area-inset-top)) 10px 10px;
   background:linear-gradient(135deg,#1d4ed8,#6d28d9);
   color:white;
@@ -67,8 +70,15 @@ select option { color:#111827; background:white; }
   border-radius:999px; color:white; background:rgba(255,255,255,.12); font:inherit; font-size:13px; font-weight:900; cursor:pointer;
 }
 .tab.active { background:white; color:#1d4ed8; border-color:white; }
-.viewer { flex:1; min-height:0; position:relative; }
-iframe { width:100%; height:100%; border:0; display:block; background:white; }
+.viewer { width:100%; min-height:calc(100vh - 135px); position:relative; }
+iframe {
+  width:100%;
+  min-height:calc(100vh - 135px);
+  height:calc(100vh - 135px);
+  border:0;
+  display:block;
+  background:var(--bg);
+}
 .loading {
   position:absolute; inset:0; display:grid; place-items:center; color:var(--muted);
   background:var(--bg); font-weight:900;
@@ -78,6 +88,11 @@ iframe { width:100%; height:100%; border:0; display:block; background:white; }
   .brand strong { font-size:14px; }
   .count-pill { display:none; }
   .tab { min-height:36px; padding:0 10px; font-size:12px; }
+}
+
+.fullpage-hint { display:none; }
+@media(max-width:520px) {
+  .viewer, iframe { min-height:calc(100vh - 170px); }
 }
 @media print { .topbar { display:none!important; } html,body,.app,.viewer,iframe { overflow:visible; height:auto; } }
 </style>
@@ -89,13 +104,13 @@ iframe { width:100%; height:100%; border:0; display:block; background:white; }
       <div class="title-row">
         <div class="brand">
           <strong id="currentTitle">TELC Lesen – All in One</strong>
-          <small>ملف واحد فيه جميع تمارين TELC Lesen المضافة</small>
+          <small>ملف واحد · الصفحة كتفتح بطول كامل وبلا تقطيع</small>
         </div>
         <div class="count-pill" id="lessonCount">0 lessons</div>
       </div>
       <div class="controls">
         <select id="lessonSelect" aria-label="اختيار الدرس"></select>
-        <button class="open-btn" id="openCurrent" type="button">فتح الدرس بوحدو</button>
+        <button class="open-btn" id="openCurrent" type="button">فتح الدرس صفحة كاملة</button>
       </div>
       <nav class="tabs" id="tabs" aria-label="الدروس"></nav>
     </div>
@@ -134,11 +149,73 @@ function loadLesson(index) {
   [...tabs.children].forEach((btn, i) => btn.classList.toggle('active', i === index));
   select.value = String(index);
   loading.style.display = 'grid';
+  frame.style.height = Math.max(420, window.innerHeight - topbarHeight()) + 'px';
   frame.srcdoc = decodeBase64Utf8(lesson.b64);
+  window.scrollTo({ top: 0, behavior: 'auto' });
   try { localStorage.setItem('telc_all_in_one_last_lesson_v2', String(index)); } catch(e) {}
 }
 
-frame.addEventListener('load', () => { loading.style.display = 'none'; });
+
+let resizeTimer = null;
+let frameObserver = null;
+
+function topbarHeight() {
+  const bar = document.querySelector('.topbar');
+  return bar ? bar.getBoundingClientRect().height : 0;
+}
+
+function fitFrameHeight() {
+  try {
+    const doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+    if (!doc) return;
+    const body = doc.body;
+    const html = doc.documentElement;
+    if (!body || !html) return;
+    // خلي السكرول يكون ف الصفحة الأم، ماشي داخل iframe.
+    html.style.overflow = 'visible';
+    body.style.overflow = 'visible';
+    const minHeight = Math.max(420, window.innerHeight - topbarHeight());
+    const contentHeight = Math.max(
+      body.scrollHeight, html.scrollHeight,
+      body.offsetHeight, html.offsetHeight,
+      body.clientHeight, html.clientHeight,
+      minHeight
+    );
+    frame.style.height = contentHeight + 'px';
+    frame.style.minHeight = minHeight + 'px';
+  } catch (e) {
+    frame.style.height = Math.max(420, window.innerHeight - topbarHeight()) + 'px';
+  }
+}
+
+function scheduleFit() {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(fitFrameHeight, 60);
+}
+
+frame.addEventListener('load', () => {
+  loading.style.display = 'none';
+  if (frameObserver) frameObserver.disconnect();
+  try {
+    const doc = frame.contentDocument || frame.contentWindow.document;
+    const style = doc.createElement('style');
+    style.textContent = `
+      html, body { overflow:visible !important; }
+      body { min-height:auto !important; }
+      .page, .app { margin-left:auto !important; margin-right:auto !important; }
+    `;
+    doc.head.appendChild(style);
+    frameObserver = new MutationObserver(scheduleFit);
+    frameObserver.observe(doc.documentElement, { childList:true, subtree:true, attributes:true, characterData:true });
+  } catch (e) {}
+  fitFrameHeight();
+  setTimeout(fitFrameHeight, 150);
+  setTimeout(fitFrameHeight, 700);
+  setTimeout(fitFrameHeight, 1500);
+});
+
+window.addEventListener('resize', scheduleFit);
+
 
 lessonCount.textContent = lessons.length + ' lessons';
 lessons.forEach((lesson, index) => {
